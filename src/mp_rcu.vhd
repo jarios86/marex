@@ -1,68 +1,59 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
-
+use ieee.numeric_std_unsigned.all;
 use work.mp_global_pkg.all;
-use work.mp_ecu_pkg.all;
+use work.mp_ocu_pkg.all;
 use work.mp_rcu_pkg.all;
 
 entity mp_rcu is -- Rule Computing Unit
 	port(
 		clk 			: in std_logic;
 		rst_n 			: in std_logic;
-		elt_type		: in std_logic_vector(ELEMENT_TYPE_BITS_WIDTH-1 downto 0);
-		num_in_elts 	: in std_logic_vector (NUM_ELEMENTS_PER_TYPE_BITS_WIDTH-1 downto 0);
+		ocb_in_if		: in from_ocb_if;
 		cmd				: in rcu_command;
 		ecu_config_idx	: in std_logic_vector(NUM_ECUs_PER_RCU_BITS_WITDH-1 downto 0);
-		elt_queue		: out std_logic;
-		num_queued_elts	: out std_logic_vector (NUM_ELEMENTS_PER_TYPE_BITS_WIDTH-1 downto 0);
-		elt_actual		: out std_logic;
-		num_actual_elts	: out std_logic_vector (NUM_ELEMENTS_PER_TYPE_BITS_WIDTH-1 downto 0);
-		busy			: out std_logic
+		ocb_out_if		: out to_ocb_if;
+ 		busy			: out std_logic
 	);
 end entity mp_rcu;
 
 architecture RTL of mp_rcu is
 	
-	--signal r_elt_type, n_elt_type 					: std_logic_vector(ELEMENT_TYPE_BITS_WIDTH-1 downto 0);
-	signal n_elt_type 								: std_logic_vector(ELEMENT_TYPE_BITS_WIDTH-1 downto 0);
-	--signal r_num_in_elts, n_num_in_elts 			: std_logic_vector(NUM_ELEMENTS_PER_TYPE_BITS_WIDTH-1 downto 0);
-	signal n_num_in_elts 							: std_logic_vector(NUM_ELEMENTS_PER_TYPE_BITS_WIDTH-1 downto 0);
-	--signal r_ecu_cmd, n_ecu_cmd						: cmd_array;
+	signal rcu_to_ocu								: from_rcu_if;
+	signal ocu_to_rcu								: to_rcu_if_array;
+	
 	signal n_ecu_cmd								: cmd_array;
-	--signal r_ecu_config_idx, n_ecu_config_idx		: std_logic_vector(NUM_ECUs_PER_RCU_BITS_WITDH-1 downto 0);
 	signal ready_ecu								: logic_array;			
-	signal elt_queue_ecu							: logic_array;
-	signal elt_actual_ecu							: logic_array;
-	signal num_out_elts_ecu							: logic_vector_array;
 	
 	signal r_purge, n_purge							: std_logic;
+	signal r_purge_candidate, n_purge_candidate		: std_logic;
 	signal r_busy, n_busy							: std_logic;
 	
-	signal r_num_queued_elts, n_num_queued_elts		: std_logic_vector (NUM_ELEMENTS_PER_TYPE_BITS_WIDTH-1 downto 0);
-	signal r_num_actual_elts, n_num_actual_elts		: std_logic_vector (NUM_ELEMENTS_PER_TYPE_BITS_WIDTH-1 downto 0);
-	signal n_elt_queue 								: std_logic;
-	signal n_elt_actual								: std_logic;
+	signal r_num_queued_objs, n_num_queued_objs		: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BITS_WIDTH-1 downto 0);
+	signal r_num_active_objs, n_num_active_objs		: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BITS_WIDTH-1 downto 0);
+	signal r_obj_queue, n_obj_queue 				: std_logic;
+	signal r_obj_active, n_obj_active				: std_logic;
 	
 	type state is (idle, wait_cmd, collect, deliver, ready_chk);
 	signal r_mp_rcu_control_state, n_mp_rcu_control_state : state;
+	
+	signal r_exe_limit, n_exe_limit		: std_logic_vector(EXECUTION_LIMIT_BITS_WIDTH-1 downto 0);
+	signal r_exe_counter, n_exe_counter : std_logic_vector(EXECUTION_LIMIT_BITS_WIDTH-1 downto 0);
 	
 	
 begin
 	
 	mp_ecu_maker : for ecu_idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU+MAX_NUM_ECU_RESULTS_PER_RCU-1) generate 
     BEGIN
-        mp_ecu_inst : ENTITY work.mp_ecu
+        mp_ecu_inst : entity work.mp_ocu
         	port map(
-        		clk          => clk,
-        		rst_n        => rst_n,
-        		elt_type     => n_elt_type,
-        		num_in_elts  => n_num_in_elts,
-        		cmd          => n_ecu_cmd(ecu_idx),
-        		ready        => ready_ecu(ecu_idx),
-        		elt_queue    => elt_queue_ecu(ecu_idx),
-        		elt_actual   => elt_actual_ecu(ecu_idx),
-        		num_out_elts => num_out_elts_ecu(ecu_idx)
+        		clk        => clk,
+        		rst_n      => rst_n,
+        		rcu_in_if  => rcu_to_ocu,
+        		cmd        => n_ecu_cmd(ecu_idx),
+        		ready      => ready_ecu(ecu_idx),
+        		rcu_out_if => ocu_to_rcu(ecu_idx)
         	);
     end generate mp_ecu_maker;
     
@@ -71,34 +62,27 @@ begin
     begin
     	if(rst_n = '0') then
     		r_mp_rcu_control_state 	<= idle;
-    		--r_elt_type				<= (others=>'0');
-    		r_num_queued_elts		<= (others=>'0');
-    		r_num_actual_elts		<= (others=>'0');
-    		--r_elt_queue				<= '0';
+    		r_num_queued_objs		<= (others=>'0');
+    		r_num_active_objs		<= (others=>'0');
     		r_purge					<= '0';
-    		--r_elt_actual			<= '0';
     		r_busy					<= '0';
-    		--r_num_in_elts			<= (others=>'0');
-    		
---    		for idx in 0 to r_num_in_elts'length-1 loop
---    			r_num_in_elts(idx)	<= (others=>'0');
---    		end loop;
---    		for idx in 0 to r_ecu_cmd'length-1 loop
---    			r_ecu_cmd(idx)	<= NOP;
---    		end loop;
+    		r_exe_limit				<= (others=>'0');
+    		r_exe_counter			<= (others=>'0');
+    		r_purge_candidate		<= '0';
+    		r_obj_queue				<= '0';
+    		r_obj_active			<= '0';
     		
     	elsif rising_edge(clk) then
     		r_mp_rcu_control_state	<= n_mp_rcu_control_state;
-    		--r_elt_type			<= n_elt_type;
-    		--r_num_in_elts			<= n_num_in_elts;
-    		--r_ecu_cmd				<= n_ecu_cmd;
-    		r_num_queued_elts		<= n_num_queued_elts;
-    		r_num_actual_elts		<= n_num_actual_elts;
-    		--r_elt_queue				<= n_elt_queue;
+    		r_num_queued_objs		<= n_num_queued_objs;
+    		r_num_active_objs		<= n_num_active_objs;
     		r_purge					<= n_purge;
-    		--r_elt_actual			<= n_elt_actual;
     		r_busy					<= n_busy;
-    		--r_num_in_elts			<= n_num_in_elts;
+    		r_exe_limit				<= n_exe_limit;
+    		r_exe_counter			<= n_exe_counter;
+    		r_purge_candidate		<= n_purge_candidate;
+    		r_obj_queue				<= n_obj_queue;
+    		r_obj_active			<= n_obj_active;
     		
     	end if;	
     end process;
@@ -109,21 +93,19 @@ begin
     	
     begin
     	n_mp_rcu_control_state	<= r_mp_rcu_control_state;
-    	n_elt_type				<= elt_type; --r_elt_type;
-    	n_num_in_elts 			<= num_in_elts;
     	n_purge					<= r_purge;
-    	n_num_queued_elts		<= r_num_queued_elts;
-    	n_num_actual_elts		<= r_num_actual_elts;
-    	n_elt_queue				<= '0';
-    	n_elt_actual			<= '0';
+    	n_num_queued_objs		<= r_num_queued_objs;
+    	n_num_active_objs		<= r_num_active_objs;
+    	n_obj_queue				<= '0';
+    	n_obj_active			<= '0';
     	n_busy					<= '0';
+    	n_exe_limit				<= r_exe_limit;
+    	n_exe_counter			<= r_exe_counter;
+    	n_purge_candidate		<= r_purge_candidate;
     	
---    	for idx in 0 to n_num_in_elts'length-1 loop
---    		n_num_in_elts(idx)	<= r_num_in_elts(idx);
---    	end loop;
-    	
-    	for idx in 0 to n_ecu_cmd'length-1 loop
+    	for idx in 0 to (n_ecu_cmd'length-1) loop
     		n_ecu_cmd(idx)	<= NOP;
+    		--report "n_ecu_cmd(" &integer'image(idx)& ") --> " & ecu_command'image(n_ecu_cmd(idx));
     	end loop;
     	
     	case (r_mp_rcu_control_state) is
@@ -133,28 +115,36 @@ begin
     			
     		when wait_cmd =>
     			if(cmd = CONFIGURE) then
-    				--n_elt_type									<= elt_type;
-    				--n_num_in_elts									<= num_in_elts;
     				n_ecu_cmd(to_integer(unsigned(ecu_config_idx)))	<= CONFIGURE;
     				
-    			elsif(cmd = CLEAR) then
-    				for idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU+MAX_NUM_ECU_RESULTS_PER_RCU-1) loop
-	    				n_ecu_cmd(idx)	<= CLEAR;    				
-    				end loop;
-    				n_purge <= '0';
+    			elsif(cmd = CONFIG_LIMIT) then
+    				n_exe_limit 	<= ocb_in_if.num_active_objs;
+    				n_exe_counter	<= ocb_in_if.num_active_objs;
     				
     			elsif(cmd = EXECUTE) then
-    				if(elt_type = std_logic_vector(to_unsigned(special_object_types'pos(OMEGA),elt_type'length))) then
-	    				n_purge	<= '1';
+    				if(rcu_to_ocu.object = std_logic_vector(to_unsigned(special_object_types'pos(OMEGA),rcu_to_ocu.object'length))) then
+	    				if(r_purge_candidate = '1') then
+	    					n_purge				<= '1';
+	    					n_purge_candidate 	<= '0';
 	    				
-	    			elsif(elt_type = std_logic_vector(to_unsigned(special_object_types'pos(ALFA),elt_type'length))) then
-	    				null; --TODO implementación futura
+	    				elsif(r_purge = '1') then
+	    					n_num_active_objs 	<= std_logic_vector(to_unsigned(1, n_num_active_objs'length));
+	    					n_obj_active		<= '1';
+	    				end if;
 	    				
-	    			elsif(elt_type = std_logic_vector(to_unsigned(special_object_types'pos(DELTA),elt_type'length))) then
-	    				null; --TODO implementación futura
+	    			elsif(rcu_to_ocu.object = std_logic_vector(to_unsigned(special_object_types'pos(ALFA),rcu_to_ocu.object'length))) then
+	    				for idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU+MAX_NUM_ECU_RESULTS_PER_RCU-1) loop
+	    					n_ecu_cmd(idx)	<= CLEAR;    				
+	    				end loop;
+	    				n_purge <= '0';
+	    				n_exe_counter <= r_exe_limit;
 	    				
-	    			elsif(elt_type = std_logic_vector(to_unsigned(special_object_types'pos(NL),elt_type'length))) then
-	    				null; --TODO implementación futura
+	    			--elsif(rcu_to_ocu.object = std_logic_vector(to_unsigned(special_object_types'pos(DELTA),rcu_to_ocu.object'length))) then
+	    				--null;
+	    				
+	    			elsif(rcu_to_ocu.object = std_logic_vector(to_unsigned(special_object_types'pos(NL),rcu_to_ocu.object'length))) then
+	    				n_busy <= '1';
+	    				n_mp_rcu_control_state	<= ready_chk;
 	    				
 	    			elsif(r_purge = '1') then
 	    				n_busy <= '1';
@@ -165,7 +155,6 @@ begin
     					
 	    			else
 	    				n_busy <= '1';
-	    				--n_num_in_elts <= num_in_elts;
     					for idx in MAX_NUM_ECU_OPERANDS_PER_RCU to (MAX_NUM_ECU_OPERANDS_PER_RCU+MAX_NUM_ECU_RESULTS_PER_RCU-1) loop
     						n_ecu_cmd(idx) <= DRAIN;
     					end loop;
@@ -177,17 +166,17 @@ begin
     		when collect =>
     			n_busy <= '1';
     			for idx in MAX_NUM_ECU_OPERANDS_PER_RCU to (MAX_NUM_ECU_OPERANDS_PER_RCU+MAX_NUM_ECU_RESULTS_PER_RCU-1) loop
-    				if(elt_queue_ecu(idx) = '1') then
-    					n_num_queued_elts 	<= num_out_elts_ecu(idx);
-    					n_elt_queue			<= '1';
+    				if(ocu_to_rcu(idx).obj_queue = '1') then
+    					n_num_queued_objs 	<= ocu_to_rcu(idx).num_out_objs;
+    					n_obj_queue			<= '1';
     				end if;
     			end loop;
     			
     			if(r_purge = '1') then
     				for idx in 0 to MAX_NUM_ECU_OPERANDS_PER_RCU-1 loop
-	    				if(elt_actual_ecu(idx) = '1') then
-	    					n_num_actual_elts 	<= num_out_elts_ecu(idx);
-	    					n_elt_actual		<= '1';
+	    				if(ocu_to_rcu(idx).obj_active = '1') then
+	    					n_num_active_objs 	<= ocu_to_rcu(idx).num_out_objs;
+	    					n_obj_active		<= '1';
 	    				end if;
 	    			end loop;
 	    			n_mp_rcu_control_state	<= wait_cmd;
@@ -203,43 +192,50 @@ begin
 			when deliver =>
 				n_busy <= '1';
     			for idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU-1) loop
-    				if(elt_actual_ecu(idx) = '1') then
-    					n_num_actual_elts 	<= num_out_elts_ecu(idx); -- r_num_in_elts - num_out_elts_ecu(idx)
-    					n_elt_actual		<= '1';
+    				if(ocu_to_rcu(idx).obj_active = '1') then
+    					n_num_active_objs 	<= ocu_to_rcu(idx).num_out_objs;
+    					n_obj_active		<= '1';
+    					n_purge_candidate	<= '1';
     				end if;
     			end loop;
 				n_mp_rcu_control_state	<= ready_chk;
 				
 				
 			when ready_chk =>
-				--n_busy <= '1';
 				all_ecus_ready := true;
 				for idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU-1) loop
 					if(ready_ecu(idx) = '0') then
 						all_ecus_ready := false;
 					end if;
 				end loop;
-				if(all_ecus_ready) then
+				if(all_ecus_ready and r_exe_counter /= std_logic_vector(to_unsigned(0,r_exe_counter'length))) then
 					for idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU-1) loop
 						n_ecu_cmd(idx)	<= EXECUTE_OPERAND;
 					end loop;
 					for idx in MAX_NUM_ECU_OPERANDS_PER_RCU to (MAX_NUM_ECU_OPERANDS_PER_RCU+MAX_NUM_ECU_RESULTS_PER_RCU-1) loop
 						n_ecu_cmd(idx)	<= EXECUTE_RESULT;
 					end loop;
+					if(and r_exe_counter /= '1') then
+						n_exe_counter <= r_exe_counter - 1;
+					end if;
 				end if;
-    			n_mp_rcu_control_state	<= wait_cmd;			
-				
+    			n_mp_rcu_control_state	<= wait_cmd;
+    			
     	end case;
     end process;
     
     
     process (ALL)
     begin
-    	elt_actual		<= n_elt_actual;		-- TODO Deberían estas señales estar conectadas directamente a la señal n_ mejor que
-    	elt_queue 		<= n_elt_queue;			-- a la señal del registro r_ ???. Idem para la ECU
-    	num_actual_elts	<= n_num_actual_elts;
-		num_queued_elts <= n_num_queued_elts;
-		busy			<= r_busy; 	
+    	rcu_to_ocu.object 			<= ocb_in_if.object;
+		rcu_to_ocu.num_in_objs 		<= ocb_in_if.num_active_objs;
+		rcu_to_ocu.probability 		<= ocb_in_if.probability;
+	
+    	ocb_out_if.obj_active		<= r_obj_active;
+    	ocb_out_if.obj_queue		<= r_obj_queue;
+    	ocb_out_if.num_active_objs	<= r_num_active_objs;
+		ocb_out_if.num_queued_objs 	<= r_num_queued_objs;
+		busy						<= r_busy; 	
     end process;    	
 
 end architecture RTL;
