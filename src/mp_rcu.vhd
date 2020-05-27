@@ -12,7 +12,7 @@ entity mp_rcu is -- Rule Computing Unit
 		rst_n 			: in std_logic;
 		ocb_in_if		: in from_ocb_if;
 		cmd				: in rcu_command;
-		ecu_config_idx	: in std_logic_vector(NUM_ECUs_PER_RCU_BITS_WITDH-1 downto 0);
+		ecu_config_idx	: in std_logic_vector(NUM_ECUs_PER_RCU_BIT_WITDH-1 downto 0);
 		ocb_out_if		: out to_ocb_if;
  		busy			: out std_logic
 	);
@@ -27,11 +27,11 @@ architecture RTL of mp_rcu is
 	signal ready_ecu								: logic_array;			
 	
 	signal r_purge, n_purge							: std_logic;
-	signal r_purge_candidate, n_purge_candidate		: std_logic;
+--	signal r_purge_candidate, n_purge_candidate		: std_logic;
 	signal r_busy, n_busy							: std_logic;
 	
-	signal r_num_queued_objs, n_num_queued_objs		: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BITS_WIDTH-1 downto 0);
-	signal r_num_active_objs, n_num_active_objs		: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BITS_WIDTH-1 downto 0);
+	signal r_num_queued_objs, n_num_queued_objs		: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BIT_WIDTH-1 downto 0);
+	signal r_num_active_objs, n_num_active_objs		: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BIT_WIDTH-1 downto 0);
 	signal r_obj_queue, n_obj_queue 				: std_logic;
 	signal r_obj_active, n_obj_active				: std_logic;
 	
@@ -45,7 +45,7 @@ architecture RTL of mp_rcu is
 begin
 	
 	mp_ecu_maker : for ecu_idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU+MAX_NUM_ECU_RESULTS_PER_RCU-1) generate 
-    BEGIN
+    begin
         mp_ecu_inst : entity work.mp_ocu
         	port map(
         		clk        => clk,
@@ -68,7 +68,7 @@ begin
     		r_busy					<= '0';
     		r_exe_limit				<= (others=>'0');
     		r_exe_counter			<= (others=>'0');
-    		r_purge_candidate		<= '0';
+--    		r_purge_candidate		<= '0';
     		r_obj_queue				<= '0';
     		r_obj_active			<= '0';
     		
@@ -80,7 +80,7 @@ begin
     		r_busy					<= n_busy;
     		r_exe_limit				<= n_exe_limit;
     		r_exe_counter			<= n_exe_counter;
-    		r_purge_candidate		<= n_purge_candidate;
+--    		r_purge_candidate		<= n_purge_candidate;
     		r_obj_queue				<= n_obj_queue;
     		r_obj_active			<= n_obj_active;
     		
@@ -89,7 +89,8 @@ begin
     	
     
     process (ALL)
-    	variable all_ecus_ready : boolean := true;
+    	variable all_ocus_ready 		: boolean := true;
+    	variable any_ocu_active_holding : boolean := false;
     	
     begin
     	n_mp_rcu_control_state	<= r_mp_rcu_control_state;
@@ -101,7 +102,7 @@ begin
     	n_busy					<= '0';
     	n_exe_limit				<= r_exe_limit;
     	n_exe_counter			<= r_exe_counter;
-    	n_purge_candidate		<= r_purge_candidate;
+--    	n_purge_candidate		<= r_purge_candidate;
     	
     	for idx in 0 to (n_ecu_cmd'length-1) loop
     		n_ecu_cmd(idx)	<= NOP;
@@ -123,14 +124,36 @@ begin
     				
     			elsif(cmd = EXECUTE) then
     				if(rcu_to_ocu.object = std_logic_vector(to_unsigned(special_object_types'pos(OMEGA),rcu_to_ocu.object'length))) then
-	    				if(r_purge_candidate = '1') then
-	    					n_purge				<= '1';
-	    					n_purge_candidate 	<= '0';
+	    				all_ocus_ready := true;
+						for idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU-1) loop
+							if(ready_ecu(idx) = '0') then
+								all_ocus_ready := false;
+							end if;
+						end loop;
 	    				
-	    				elsif(r_purge = '1') then
-	    					n_num_active_objs 	<= std_logic_vector(to_unsigned(1, n_num_active_objs'length));
-	    					n_obj_active		<= '1';
-	    				end if;
+						if((not all_ocus_ready) or (all_ocus_ready and (or r_exe_counter = '0'))) then
+							any_ocu_active_holding := false;
+		    				for idx in 0 to MAX_NUM_ECU_OPERANDS_PER_RCU-1 loop
+			    				if(ocu_to_rcu(idx).holding_active_objs = '1') then
+			    					any_ocu_active_holding := true;
+			    				end if;
+			    			end loop;
+			    			
+			    			if(any_ocu_active_holding) then
+			    				n_purge				<= '1';
+			    				n_num_active_objs 	<= std_logic_vector(to_unsigned(1, n_num_active_objs'length));
+	    						n_obj_active		<= '1';
+			    			end if;
+		    			end if;
+	    				
+--	    				if(r_purge_candidate = '1') then
+--	    					n_purge				<= '1';
+--	    					n_purge_candidate 	<= '0';
+--	    				
+--	    				elsif(r_purge = '1') then
+--	    					n_num_active_objs 	<= std_logic_vector(to_unsigned(1, n_num_active_objs'length));
+--	    					n_obj_active		<= '1';
+--	    				end if;
 	    				
 	    			elsif(rcu_to_ocu.object = std_logic_vector(to_unsigned(special_object_types'pos(ALFA),rcu_to_ocu.object'length))) then
 	    				for idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU+MAX_NUM_ECU_RESULTS_PER_RCU-1) loop
@@ -195,20 +218,20 @@ begin
     				if(ocu_to_rcu(idx).obj_active = '1') then
     					n_num_active_objs 	<= ocu_to_rcu(idx).num_out_objs;
     					n_obj_active		<= '1';
-    					n_purge_candidate	<= '1';
+--    					n_purge_candidate	<= '1';
     				end if;
     			end loop;
 				n_mp_rcu_control_state	<= ready_chk;
 				
 				
 			when ready_chk =>
-				all_ecus_ready := true;
+				all_ocus_ready := true;
 				for idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU-1) loop
 					if(ready_ecu(idx) = '0') then
-						all_ecus_ready := false;
+						all_ocus_ready := false;
 					end if;
 				end loop;
-				if(all_ecus_ready and r_exe_counter /= std_logic_vector(to_unsigned(0,r_exe_counter'length))) then
+				if(all_ocus_ready and r_exe_counter /= std_logic_vector(to_unsigned(0,r_exe_counter'length))) then
 					for idx in 0 to (MAX_NUM_ECU_OPERANDS_PER_RCU-1) loop
 						n_ecu_cmd(idx)	<= EXECUTE_OPERAND;
 					end loop;
@@ -235,6 +258,7 @@ begin
     	ocb_out_if.obj_queue		<= r_obj_queue;
     	ocb_out_if.num_active_objs	<= r_num_active_objs;
 		ocb_out_if.num_queued_objs 	<= r_num_queued_objs;
+		ocb_out_if.purge			<= r_purge;
 		busy						<= r_busy; 	
     end process;    	
 

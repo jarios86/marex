@@ -22,9 +22,9 @@ architecture RTL of mp_ocu is
 	
 	signal r_members, n_members				: ocu_members;
 	signal r_ready, n_ready					: std_logic;
-	signal r_num_out_objs, n_num_out_objs	: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BITS_WIDTH-1 downto 0);
+	signal r_num_out_objs, n_num_out_objs	: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BIT_WIDTH-1 downto 0);
 	signal r_obj_active, n_obj_active		: std_logic; 
-	signal r_obj_queue, n_obj_queue			: std_logic;		
+	signal r_obj_queue, n_obj_queue			: std_logic;
 	
 begin
 	
@@ -148,10 +148,11 @@ begin
 	
 	process (ALL)
 	begin
-		ready					<= r_ready;
-		rcu_out_if.obj_queue	<= r_obj_queue;
-		rcu_out_if.obj_active	<= r_obj_active;
-		rcu_out_if.num_out_objs	<= r_num_out_objs;
+		ready							<= r_ready;
+		rcu_out_if.obj_queue			<= r_obj_queue;
+		rcu_out_if.obj_active			<= r_obj_active;
+		rcu_out_if.num_out_objs			<= r_num_out_objs;
+		rcu_out_if.holding_active_objs	<= (or r_members.obj_param.active_objs);
 	end process;
 		
 end architecture RTL;

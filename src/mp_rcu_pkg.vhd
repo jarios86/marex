@@ -16,15 +16,16 @@ package mp_rcu_pkg is
 	
 	type from_ocb_if is record
 		object       	: std_logic_vector(NUM_OBJECT_TYPES_BIT_WIDTH-1 downto 0);
-        num_active_objs	: std_logic_vector(MAX_NUM_OBJECTS_PER_TYPE_BITS_WIDTH-1 downto 0);
-        probability		: std_logic_vector(PROBABILITY_BITS_WIDTH-1 downto 0);
+        num_active_objs	: std_logic_vector(MAX_NUM_OBJECTS_PER_TYPE_BIT_WIDTH-1 downto 0);
+        probability		: std_logic_vector(PROBABILITY_BIT_WIDTH-1 downto 0);
 	end record from_ocb_if;
 	
 	type to_ocb_if is record
 		obj_queue		: std_logic;
-        num_queued_objs	: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BITS_WIDTH-1 downto 0);
+        num_queued_objs	: std_logic_vector (MAX_NUM_OBJECTS_PER_TYPE_BIT_WIDTH-1 downto 0);
         obj_active		: std_logic;
-        num_active_objs	: std_logic_vector(MAX_NUM_OBJECTS_PER_TYPE_BITS_WIDTH-1 downto 0);
+        num_active_objs	: std_logic_vector(MAX_NUM_OBJECTS_PER_TYPE_BIT_WIDTH-1 downto 0);
+        purge			: std_logic;
 	end record to_ocb_if;
 	
 	type rcu_command is (NOP, CONFIGURE, EXECUTE, CONFIG_LIMIT);
