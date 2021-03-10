@@ -1,6 +1,13 @@
 <h2 name="Title">MAREX: P-System hardware processor</h2>
 
-This is a hardware processor for membrane computation designed for FPGA.
+Hardware implementation for a new membrane processor architecture, made by RTC-Lab at University of Seville
+
+This source code is for Liter version of MAREX architecture. Only for researching purposes.
+
+<h2 name="Contente">Content</h2>
+- <b>src</b> VHDL source
+- <b>test</b> VHDL tests
+- <b>marex_vivao.tcl</b> Script to generate the vivado poject
 
 <h2 name="License">License</h2>
 
