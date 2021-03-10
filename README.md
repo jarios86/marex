@@ -6,7 +6,9 @@ This source code is for Liter version of MAREX architecture. Only for researchin
 
 <h2 name="Contente">Content</h2>
 - <b>src</b> VHDL source
+
 - <b>test</b> VHDL tests
+
 - <b>marex_vivao.tcl</b> Script to generate the vivado poject
 
 <h2 name="License">License</h2>
