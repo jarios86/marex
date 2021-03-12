@@ -2,7 +2,7 @@
 
 Hardware implementation for a new membrane processor architecture, made by RTC-Lab at University of Seville
 
-This source code is for Lite version of MAREX architecture. Only for researching purposes.
+This source code is for Lite version of MAREX architecture. Only for researching purposes. The software simulatior can be found <a href="https://github.com/danicas1971/MAREX-SIM">here</a>.
 
 <h2 name="Contente">Content</h2>
 
