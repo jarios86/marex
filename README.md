@@ -1,3 +1,7 @@
+<p align="center">
+<img align="center" src="https://github.com/jarios86/marex/blob/master/Marex_logo.png" alt="Marex extended logo">
+</p>
+
 <h2 name="Title">MAREX: P-System hardware processor</h2>
 
 Hardware implementation for a new membrane processor architecture, made by RTC-Lab at University of Seville
